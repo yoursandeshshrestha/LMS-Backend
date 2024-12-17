@@ -5,6 +5,7 @@ import ErrorHandler from "../utils/ErrorHandler";
 import { CatchAsyncError } from "../middleware/catchAsyncErrors";
 import jwt, { JwtPayload, Secret } from "jsonwebtoken";
 import sendMail from "../utils/sendMail";
+import ejs from "ejs";
 
 import {
   accessTokenOptions,
@@ -18,15 +19,9 @@ import {
   updateUserRoleService,
 } from "../services/user.service";
 import cloudinary from "cloudinary";
+import path from "path";
 
 // register user
-interface IRegistrationBody {
-  name: string;
-  email: string;
-  password: string;
-  avatar?: string;
-}
-
 interface IRegistrationBody {
   name: string;
   email: string;
@@ -37,37 +32,47 @@ interface IRegistrationBody {
 export const registrationUser = CatchAsyncError(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, email, password }: IRegistrationBody = req.body;
+      const { name, email, password } = req.body;
 
       const isEmailExist = await userModel.findOne({ email });
       if (isEmailExist) {
-        return next(new ErrorHandler("Email already exists", 400));
+        return next(new ErrorHandler("Email already exist", 400));
       }
 
-      const user: IRegistrationBody = { name, email, password };
+      const user: IRegistrationBody = {
+        name,
+        email,
+        password,
+      };
 
-      const newUser = await userModel.create(user);
+      const activationToken = createActivationToken(user);
 
-      const { token, activationCode } = createActivationToken(newUser);
+      const activationCode = activationToken.activationCode;
 
-      await sendMail({
-        email: newUser.email,
-        subject: "Activate Your Bluekites Account",
-        template: "activation-mail.ejs",
-        data: {
-          user: newUser,
-          activationCode,
-        },
-      });
+      const data = { user: { name: user.name }, activationCode };
+      const html = await ejs.renderFile(
+        path.join(__dirname, "../mails/activation-mail.ejs"),
+        data
+      );
 
-      res.status(201).json({
-        success: true,
-        message:
-          "User registered successfully. Please check your email to activate your account.",
-        user: { name: newUser.name, email: newUser.email, token },
-      });
+      try {
+        await sendMail({
+          email: user.email,
+          subject: "Activate your account",
+          template: "activation-mail.ejs",
+          data,
+        });
+
+        res.status(201).json({
+          success: true,
+          message: `Please check your email: ${user.email} to activate your account!`,
+          activationToken: activationToken.token,
+        });
+      } catch (error: any) {
+        return next(new ErrorHandler(error.message, 400));
+      }
     } catch (error: any) {
-      return next(new ErrorHandler(error.message, 500));
+      return next(new ErrorHandler(error.message, 400));
     }
   }
 );
@@ -106,61 +111,33 @@ export const activateUser = CatchAsyncError(
       const { activation_token, activation_code } =
         req.body as IActivationRequest;
 
-      if (!activation_token || !activation_code) {
-        return next(
-          new ErrorHandler("Activation token and code are required", 400)
-        );
-      }
+      const newUser: { user: IUser; activationCode: string } = jwt.verify(
+        activation_token,
+        process.env.ACTIVATION_SECRET as string
+      ) as { user: IUser; activationCode: string };
 
-      let decoded: any;
-
-      // Verify the activation token
-      try {
-        decoded = jwt.verify(
-          activation_token,
-          process.env.ACTIVATION_SECRET as string
-        ) as { user: IUser; activationCode: string };
-      } catch (error) {
-        return next(
-          new ErrorHandler("Invalid or expired activation token", 400)
-        );
-      }
-
-      const { user, activationCode } = decoded;
-
-      // Check if the activation code matches the one in the token
-      if (activationCode !== activation_code) {
+      if (newUser.activationCode !== activation_code) {
         return next(new ErrorHandler("Invalid activation code", 400));
       }
 
-      // Check if the user already exists in the database
-      const existUser = await userModel.findOne({ email: user.email });
+      const { name, email, password } = newUser.user;
 
-      if (!existUser) {
-        return next(new ErrorHandler("User does not exist", 404));
+      const existUser = await userModel.findOne({ email });
+
+      if (existUser) {
+        return next(new ErrorHandler("Email already exist", 400));
       }
+      const user = await userModel.create({
+        name,
+        email,
+        password,
+      });
 
-      // If the user is already verified, return an appropriate message
-      if (existUser.isVerified) {
-        return res.status(400).json({
-          success: false,
-          message: "User is already activated",
-        });
-      }
-
-      // Mark the user as verified
-      existUser.isVerified = true;
-
-      // Save the updated user
-      await existUser.save();
-
-      // Respond with a success message
-      res.status(200).json({
+      res.status(201).json({
         success: true,
-        message: "Account activated successfully!",
       });
     } catch (error: any) {
-      return next(new ErrorHandler(error.message || "Server error", 500));
+      return next(new ErrorHandler(error.message, 400));
     }
   }
 );
