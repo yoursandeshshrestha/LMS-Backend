@@ -106,33 +106,61 @@ export const activateUser = CatchAsyncError(
       const { activation_token, activation_code } =
         req.body as IActivationRequest;
 
-      const newUser: { user: IUser; activationCode: string } = jwt.verify(
-        activation_token,
-        process.env.ACTIVATION_SECRET as string
-      ) as { user: IUser; activationCode: string };
+      if (!activation_token || !activation_code) {
+        return next(
+          new ErrorHandler("Activation token and code are required", 400)
+        );
+      }
 
-      if (newUser.activationCode !== activation_code) {
+      let decoded: any;
+
+      // Verify the activation token
+      try {
+        decoded = jwt.verify(
+          activation_token,
+          process.env.ACTIVATION_SECRET as string
+        ) as { user: IUser; activationCode: string };
+      } catch (error) {
+        return next(
+          new ErrorHandler("Invalid or expired activation token", 400)
+        );
+      }
+
+      const { user, activationCode } = decoded;
+
+      // Check if the activation code matches the one in the token
+      if (activationCode !== activation_code) {
         return next(new ErrorHandler("Invalid activation code", 400));
       }
 
-      const { name, email, password } = newUser.user;
+      // Check if the user already exists in the database
+      const existUser = await userModel.findOne({ email: user.email });
 
-      const existUser = await userModel.findOne({ email });
-
-      if (existUser) {
-        return next(new ErrorHandler("Email already exist", 400));
+      if (!existUser) {
+        return next(new ErrorHandler("User does not exist", 404));
       }
-      const user = await userModel.create({
-        name,
-        email,
-        password,
-      });
 
-      res.status(201).json({
+      // If the user is already verified, return an appropriate message
+      if (existUser.isVerified) {
+        return res.status(400).json({
+          success: false,
+          message: "User is already activated",
+        });
+      }
+
+      // Mark the user as verified
+      existUser.isVerified = true;
+
+      // Save the updated user
+      await existUser.save();
+
+      // Respond with a success message
+      res.status(200).json({
         success: true,
+        message: "Account activated successfully!",
       });
     } catch (error: any) {
-      return next(new ErrorHandler(error.message, 400));
+      return next(new ErrorHandler(error.message || "Server error", 500));
     }
   }
 );
