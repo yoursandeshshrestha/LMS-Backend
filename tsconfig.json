@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2020", // Target modern JavaScript
+    "module": "CommonJS", // Use CommonJS for Node.js
+    "outDir": "./dist", // Output directory for compiled files
+    "strict": true, // Enable strict type checking
+    "esModuleInterop": true, // Allow default imports from CommonJS
+    "skipLibCheck": true, // Skip library checks for faster compilation
+    "resolveJsonModule": true, // Allow importing JSON files
+    "moduleResolution": "node", // Node.js module resolution
+    "sourceMap": true, // Generate source maps
+    "types": ["node", "@types/express"]
+  },
+  "include": ["types.d.ts", "*.ts", "types"], // Include all TypeScript files at the root
+  "exclude": ["node_modules", "dist"] // Exclude node_modules and output directory
+}
