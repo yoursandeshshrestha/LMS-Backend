@@ -20,7 +20,7 @@ app.use(cookieParser());
 
 // cors => cross origin resource sharing
 const corsOptions = {
-  origin: "http://localhost:3000",
+  origin: "https://bluekites.org",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true, // If you're using cookies/sessions
